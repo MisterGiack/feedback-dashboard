@@ -24,7 +24,7 @@ const COL = {
   cortesia: 6,       // 1-5
   miglioramenti: 7,
   apprezzato: 8,
-  data: 9,
+  data: 13, // 'Submitted At' - col 9 is a duplicate empty Email field in the sheet
 };
 
 // ── Theme Analysis Keywords (Italian) ──────────────────────────────────────
