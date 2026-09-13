@@ -97,6 +97,31 @@ function aggregateEvents(events, mode) {
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Apps Script can be slow to cold-start or hiccup transiently; retry a few
+// times with backoff before giving up. Total worst case (~80s) stays under
+// nginx's proxy_read_timeout (120s) for this vhost.
+async function fetchScriptData(attempts = 3, timeoutMs = 25000) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const r = await fetch(SCRIPT_URL, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) {
+        const backoffMs = 1000 * (i + 1);
+        console.error(`Errore fetch Apps Script (tentativo ${i + 1}/${attempts}): ${err.message} — retry tra ${backoffMs}ms`);
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 // ── GET /api/data ─────────────────────────────────────────────────────────
 // Proxy verso Apps Script: evita JSONP cross-origin che fallisce su mobile
 // (content blocker, Safari ITP, redirect a googleusercontent.com bloccato).
@@ -108,15 +133,11 @@ app.get('/api/data', async (req, res) => {
     return res.json(_dataCache.body);
   }
   try {
-    const r = await fetch(SCRIPT_URL, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(30000),
-    });
-    const body = await r.json();
+    const body = await fetchScriptData();
     _dataCache = { ts: Date.now(), body };
     res.json(body);
   } catch (err) {
-    console.error('Errore fetch Apps Script:', err.message);
+    console.error('Errore fetch Apps Script (definitivo):', err.message);
     if (_dataCache.body) return res.json(_dataCache.body);
     res.status(502).json({ error: 'Apps Script non raggiungibile' });
   }
