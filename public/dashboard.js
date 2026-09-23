@@ -96,6 +96,12 @@ function initials(name) {
   return name.trim().split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase();
 }
 
+function escapeHtml(str) {
+  return String(str ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 function avg(rows, idx) {
   const vals = rows.slice(1).map(r => parseFloat(r[idx])).filter(v => !isNaN(v) && v > 0);
   if (!vals.length) return 0;
@@ -820,6 +826,52 @@ function renderComments(rows) {
   }).join('');
 }
 
+// ── Reviews Marquee (continuous scroll under the trend chart) ──────────────
+const MARQUEE_MAX_ITEMS = 24;
+const MARQUEE_PX_PER_SEC = 32; // constant scroll speed regardless of item count
+
+function renderReviewsMarquee(rows) {
+  const el = document.getElementById('reviews-marquee');
+  if (!el) return;
+
+  const dataRows = rows.slice(1).filter(r => r[COL.apprezzato] || r[COL.miglioramenti]);
+  if (!dataRows.length) {
+    el.style.animation = 'none';
+    el.innerHTML = '<div class="no-data">Nessuna recensione disponibile</div>';
+    return;
+  }
+
+  const items = [...dataRows].reverse().slice(0, MARQUEE_MAX_ITEMS);
+
+  const chip = r => {
+    const fullName = escapeHtml([r[COL.nome], r[COL.cognome]].filter(Boolean).join(' ') || 'Anonimo');
+    const text = escapeHtml(r[COL.apprezzato] || r[COL.miglioramenti] || '');
+    const sodd = r[COL.soddisfazione];
+    const stars = sodd !== '' && sodd != null && !isNaN(parseFloat(sodd))
+      ? `<span class="review-chip-stars">★ ${escapeHtml(sodd)}/10</span>`
+      : '';
+    return `
+      <div class="review-chip">
+        <div class="review-chip-head">
+          <span class="review-chip-name">${fullName}</span>
+          ${stars}
+        </div>
+        <div class="review-chip-text">${text}</div>
+      </div>`;
+  };
+
+  // Render the list twice back-to-back so the marquee can loop seamlessly
+  // (translateX(-50%) lands exactly on the start of the duplicate copy).
+  const html = items.map(chip).join('');
+  el.innerHTML = html + html;
+
+  // Fixed px/sec speed: duration scales with content width so more reviews
+  // don't make the ticker run faster.
+  const singleSetWidth = el.scrollWidth / 2;
+  const duration = Math.max(singleSetWidth / MARQUEE_PX_PER_SEC, 15);
+  el.style.animation = `marquee-scroll ${duration}s linear infinite`;
+}
+
 // ── AI Summary ─────────────────────────────────────────────────────────────
 let _currentRows = null;
 
@@ -1144,6 +1196,7 @@ function renderSheet(rows) {
   renderDist(rows);
   renderAlerts(rows);
   renderComments(rows);
+  renderReviewsMarquee(rows);
   refreshTrend();
   loadCalendly('weekly');
 }
