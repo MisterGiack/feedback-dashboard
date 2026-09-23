@@ -24,7 +24,7 @@ const COL = {
   cortesia: 6,       // 1-5
   miglioramenti: 7,
   apprezzato: 8,
-  data: 13, // 'Submitted At' - col 9 is a duplicate empty Email field in the sheet
+  data: 14, // 'Submitted At' - fallback if header lookup below fails
 };
 
 // ── Theme Analysis Keywords (Italian) ──────────────────────────────────────
@@ -1104,6 +1104,10 @@ function renderCalendlyBreakdown(byType, total) {
 
 // ── Render All ─────────────────────────────────────────────────────────────
 function renderSheet(rows) {
+  const header = rows[0] || [];
+  const submittedIdx = header.findIndex(h => String(h).trim().toLowerCase() === 'submitted at');
+  if (submittedIdx >= 0) COL.data = submittedIdx;
+
   _currentRows = rows;
   renderKPI(rows);
   renderBars(rows);
