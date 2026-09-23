@@ -13,7 +13,11 @@ const REFRESH_INTERVAL = 12 * 60 * 60 * 1000; // 12 ore
 const CACHE_KEY = 'dashboard_cache';
 const CACHE_TS_KEY = 'dashboard_cache_ts';
 
-// Column indices (0-based)
+// Column indices (0-based). These are only the LAST-RESORT fallback used if
+// resolveColumns() below can't find a header match (empty/malformed sheet).
+// The Google Form behind this sheet gets columns added/reordered over time,
+// so the indices actually used at runtime are re-resolved from the header
+// row on every data load — never trust these numbers to stay accurate.
 const COL = {
   nome: 0,
   cognome: 1,
@@ -24,8 +28,36 @@ const COL = {
   cortesia: 6,       // 1-5
   miglioramenti: 7,
   apprezzato: 8,
-  data: 14, // 'Submitted At' - fallback if header lookup below fails
+  data: 14, // 'Submitted At'
 };
+
+// Resolves each COL field from the sheet's header row by matching (a stable
+// substring of) the Google Form question text, so inserting/reordering
+// columns in the form never silently breaks charts again. Falls back to the
+// last known-good COL.* value when no match is found.
+function resolveColumns(header) {
+  const norm = h => String(h || '').trim().toLowerCase();
+  const cells = (header || []).map(norm);
+
+  const findExact = (needle) => cells.indexOf(needle);
+  const findContains = (needle) => cells.findIndex(c => c.includes(needle));
+
+  const resolved = { ...COL };
+  const set = (key, idx) => { if (idx >= 0) resolved[key] = idx; };
+
+  set('nome', findExact('nome'));
+  set('cognome', findExact('cognome'));
+  set('email', findExact('email'));
+  set('soddisfazione', findContains('grado di soddisfazione'));
+  set('competenza', findExact('competenza'));
+  set('chiarezza', findContains('chiarezza della spiegazione'));
+  set('cortesia', findContains('cortesia e professionalit'));
+  set('miglioramenti', findContains('come potremmo migliorare'));
+  set('apprezzato', findContains('particolarmente apprezzato'));
+  set('data', findExact('submitted at'));
+
+  return resolved;
+}
 
 // ── Theme Analysis Keywords (Italian) ──────────────────────────────────────
 const THEMES = {
@@ -1104,9 +1136,7 @@ function renderCalendlyBreakdown(byType, total) {
 
 // ── Render All ─────────────────────────────────────────────────────────────
 function renderSheet(rows) {
-  const header = rows[0] || [];
-  const submittedIdx = header.findIndex(h => String(h).trim().toLowerCase() === 'submitted at');
-  if (submittedIdx >= 0) COL.data = submittedIdx;
+  Object.assign(COL, resolveColumns(rows[0]));
 
   _currentRows = rows;
   renderKPI(rows);
